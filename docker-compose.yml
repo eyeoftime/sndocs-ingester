@@ -1,7 +1,6 @@
 services:
   app:
     image: ghcr.io/eyeoftime/sndocs-ingester/app:latest
-    build: .
     ports:
       - "8000:8000"
     environment:
@@ -32,9 +31,6 @@ services:
 
   mcp:
     image: ghcr.io/eyeoftime/sndocs-ingester/mcp:latest
-    build:
-      context: .
-      dockerfile: mcp-server.Dockerfile
     ports:
       - "8080:8080"
     environment:
