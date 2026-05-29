@@ -99,7 +99,7 @@ async def sync_branch(branch: str) -> None:
         logger.info("%d changed .md files in branch %s", len(changed), branch)
 
         # Carry over existing token/cost totals and accumulate sync costs on top
-        existing_tokens = state["tokens_used"] or 0
+        existing_tokens = dict(state).get("tokens_used") or 0
         sync_tokens = 0
 
         async with httpx.AsyncClient() as http:
@@ -119,9 +119,10 @@ async def sync_branch(branch: str) -> None:
 
         total_tokens = existing_tokens + sync_tokens
         repo.set_branch_synced(branch, new_sha)
+        state_dict = dict(state)
         repo.set_branch_progress(
             branch,
-            state["files_done"] or 0, state["files_total"] or 0,
+            state_dict.get("files_done") or 0, state_dict.get("files_total") or 0,
             total_tokens, embedder.tokens_to_cost(total_tokens),
         )
         logger.info("Sync complete for branch %s @ %s (sync tokens: %d, cost: $%.4f)",
