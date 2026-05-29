@@ -1,5 +1,6 @@
 services:
   app:
+    image: ghcr.io/eyeoftime/sndocs-ingester/app:latest
     build: .
     ports:
       - "8000:8000"
@@ -30,6 +31,7 @@ services:
     restart: unless-stopped
 
   mcp:
+    image: ghcr.io/eyeoftime/sndocs-ingester/mcp:latest
     build:
       context: .
       dockerfile: mcp-server.Dockerfile
