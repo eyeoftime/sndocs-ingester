@@ -25,15 +25,9 @@ mcp = FastMCP(
     ),
 )
 
-OAUTH_PATHS = {
-    "/.well-known/oauth-authorization-server",
-    "/.well-known/oauth-protected-resource",
-}
-
-
 class BearerTokenMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
-        if request.url.path in OAUTH_PATHS:
+        if request.url.path.startswith("/.well-known/"):
             return JSONResponse({"error": "OAuth not supported"}, status_code=404)
         auth = request.headers.get("Authorization", "")
         if auth != f"Bearer {MCP_TOKEN}":
