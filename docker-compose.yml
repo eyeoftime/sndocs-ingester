@@ -37,6 +37,7 @@ services:
       - APP_URL=http://app:8000
       - API_KEY=${SECRET_KEY}
       - MCP_TOKEN=${MCP_TOKEN}
+      - SERVER_URL=${MCP_SERVER_URL:-http://localhost:8080}
     depends_on:
       - app
     restart: unless-stopped
