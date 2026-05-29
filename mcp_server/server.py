@@ -1,4 +1,5 @@
 import os
+import uvicorn
 import httpx
 from fastmcp import FastMCP
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -20,9 +21,6 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-mcp.http_app(transport="streamable-http").add_middleware(BearerTokenMiddleware)
-
-
 @mcp.tool()
 async def search_docs(query: str, branch: str, limit: int = 10) -> list[dict]:
     """Search the ServiceNow documentation for a given query.
@@ -41,3 +39,9 @@ async def search_docs(query: str, branch: str, limit: int = 10) -> list[dict]:
         )
         resp.raise_for_status()
         return resp.json()["results"]
+
+
+if __name__ == "__main__":
+    app = mcp.http_app(transport="streamable-http")
+    app.add_middleware(BearerTokenMiddleware)
+    uvicorn.run(app, host="0.0.0.0", port=8080)
