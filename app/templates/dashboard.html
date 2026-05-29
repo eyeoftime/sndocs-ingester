@@ -80,6 +80,15 @@ function renderTable(branches, ingested) {
     btn.addEventListener('click', function() { triggerIngest(branch, btn); });
     tdActions.appendChild(btn);
 
+    if (state && state.status === 'error') {
+      const resumeBtn = document.createElement('button');
+      resumeBtn.className = 'btn-secondary';
+      resumeBtn.textContent = 'Resume';
+      resumeBtn.setAttribute('data-branch', branch);
+      resumeBtn.addEventListener('click', function() { triggerResume(branch, resumeBtn); });
+      tdActions.appendChild(resumeBtn);
+    }
+
     if (state) {
       const purgeBtn = document.createElement('button');
       purgeBtn.className = 'btn-danger';
@@ -120,6 +129,26 @@ async function triggerIngest(branch, btn) {
   } catch (e) {
     btn.disabled = false;
     btn.textContent = 'Error - retry';
+  }
+}
+
+async function triggerResume(branch, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Resuming...';
+  try {
+    const res = await fetch('/resume/' + encodeURIComponent(branch), { method: 'POST' });
+    if (!res.ok) {
+      const data = await res.json();
+      alert('Resume failed: ' + (data.error || res.statusText));
+      btn.disabled = false;
+      btn.textContent = 'Resume';
+      return;
+    }
+    updateRow(branch, { status: 'running', last_synced_at: null });
+    pollStatus(branch);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'Resume';
   }
 }
 

@@ -10,8 +10,12 @@ from app.services import chunker, embedder, git_manager, qdrant_manager
 logger = logging.getLogger(__name__)
 
 
-async def ingest_branch(branch: str) -> None:
-    """Full ingest (or re-ingest) of a branch."""
+async def ingest_branch(branch: str, resume: bool = False) -> None:
+    """Full ingest (or resume) of a branch.
+
+    When resume=True, files already present in file_chunks are skipped so an
+    interrupted ingest can continue without purging existing vectors.
+    """
     collection = qdrant_manager.collection_name(branch)
     repo.upsert_branch(branch, collection)
     repo.set_branch_status(branch, "running")
@@ -24,24 +28,36 @@ async def ingest_branch(branch: str) -> None:
         qdrant = qdrant_manager.get_client()
         qdrant_manager.ensure_collection(qdrant, collection)
 
-        old_ids = repo.delete_all_chunks_for_branch(branch)
-        if old_ids:
-            qdrant_manager.delete_points(qdrant, collection, old_ids)
+        if not resume:
+            old_ids = repo.delete_all_chunks_for_branch(branch)
+            if old_ids:
+                qdrant_manager.delete_points(qdrant, collection, old_ids)
 
         md_files = git_manager.walk_md_files(git_repo)
         if settings.ingest_limit:
             md_files = md_files[: settings.ingest_limit]
-        total = len(md_files)
-        logger.info("Ingesting %d .md files for branch %s", total, branch)
-        repo.set_branch_progress(branch, 0, total)
 
-        total_tokens = 0
+        if resume:
+            already_done = repo.get_all_ingested_files(branch)
+            md_files = [f for f in md_files
+                        if str(f.relative_to(repo_root)) not in already_done]
+            logger.info("Resuming branch %s — %d files remaining", branch, len(md_files))
+
+        total = len(md_files)
+        done_so_far = repo.count_ingested_files(branch) if resume else 0
+        grand_total = done_so_far + total
+        logger.info("Ingesting %d .md files for branch %s", total, branch)
+        repo.set_branch_progress(branch, done_so_far, grand_total)
+
+        existing_tokens = (repo.get_branch(branch) or {}).get("tokens_used") or 0
+        total_tokens = existing_tokens if resume else 0
+
         async with httpx.AsyncClient() as http:
             for i, md_file in enumerate(md_files):
                 tokens = await _process_file(branch, collection, md_file, repo_root, qdrant, http)
                 total_tokens += tokens
                 repo.set_branch_progress(
-                    branch, i + 1, total,
+                    branch, done_so_far + i + 1, grand_total,
                     total_tokens, embedder.tokens_to_cost(total_tokens),
                 )
 

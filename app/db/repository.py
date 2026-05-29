@@ -95,6 +95,21 @@ def set_branch_synced(branch: str, head_sha: str) -> None:
 
 # --- file_chunks ---
 
+def get_all_ingested_files(branch: str) -> set[str]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT file_path FROM file_chunks WHERE branch = ?", (branch,)
+        ).fetchall()
+        return {r["file_path"] for r in rows}
+
+
+def count_ingested_files(branch: str) -> int:
+    with _conn() as conn:
+        return conn.execute(
+            "SELECT COUNT(DISTINCT file_path) FROM file_chunks WHERE branch = ?", (branch,)
+        ).fetchone()[0]
+
+
 def get_chunk_ids_for_file(branch: str, file_path: str) -> list[str]:
     with _conn() as conn:
         rows = conn.execute(

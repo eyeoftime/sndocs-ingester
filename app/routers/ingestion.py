@@ -53,6 +53,21 @@ async def branch_status(branch: str):
     return JSONResponse(dict(row))
 
 
+@router.post("/resume/{branch:path}")
+async def resume_ingest(branch: str, background_tasks: BackgroundTasks):
+    if branch in _running:
+        return JSONResponse({"status": "already_running"}, status_code=409)
+    state = repo.get_branch(branch)
+    if not state:
+        return JSONResponse({"error": "Branch not found"}, status_code=404)
+    if state["status"] not in ("error", "running"):
+        return JSONResponse({"error": "Branch is not in a resumable state"}, status_code=400)
+
+    _running.add(branch)
+    background_tasks.add_task(_run_resume, branch)
+    return JSONResponse({"status": "started"})
+
+
 @router.post("/purge/{branch:path}")
 async def purge_branch(branch: str):
     if branch in _running:
@@ -72,5 +87,12 @@ async def purge_branch(branch: str):
 async def _run_ingest(branch: str):
     try:
         await ingest_branch(branch)
+    finally:
+        _running.discard(branch)
+
+
+async def _run_resume(branch: str):
+    try:
+        await ingest_branch(branch, resume=True)
     finally:
         _running.discard(branch)
