@@ -3,7 +3,20 @@ services:
     build: .
     ports:
       - "8000:8000"
-    env_file: .env
+    environment:
+      - APP_PASSWORD=${APP_PASSWORD}
+      - SECRET_KEY=${SECRET_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_REPO=${GITHUB_REPO:-ServiceNow/ServiceNowDocs}
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-openai/text-embedding-3-small}
+      - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-1536}
+      - SYNC_CRON_HOUR=${SYNC_CRON_HOUR:-2}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - INGEST_LIMIT=${INGEST_LIMIT:-0}
     volumes:
       - repo_data:/data
     depends_on:
