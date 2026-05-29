@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}SNDocs Ingester{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  {% block nav %}
+  <nav>
+    <span class="nav-title">SNDocs Ingester</span>
+    <div class="nav-links">
+      <a href="/" class="nav-link">Ingest</a>
+      <a href="/query" class="nav-link">Query</a>
+      <form method="post" action="/logout" style="display:inline">
+        <button type="submit" class="btn-link">Logout</button>
+      </form>
+    </div>
+  </nav>
+  {% endblock %}
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

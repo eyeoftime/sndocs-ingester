@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Query — SNDocs Ingester{% endblock %}
+
+{% block content %}
+<div class="query-page">
+  <h2>Query</h2>
+
+  <form id="query-form">
+    <div class="query-controls">
+      <select id="branch-select" name="branch" required>
+        <option value="" disabled selected>Select a branch...</option>
+        {% for branch in branches %}
+        <option value="{{ branch }}">{{ branch }}</option>
+        {% endfor %}
+      </select>
+      <input id="query-input" name="query" type="text" placeholder="e.g. How do I use the Catalog API?" required />
+      <select id="limit-select" name="limit">
+        <option value="5">Top 5</option>
+        <option value="10" selected>Top 10</option>
+        <option value="20">Top 20</option>
+      </select>
+      <button type="submit" id="search-btn" class="btn-primary">Search</button>
+    </div>
+  </form>
+
+  <div id="results-wrap"></div>
+</div>
+
+<script>
+document.getElementById('query-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const branch = document.getElementById('branch-select').value;
+  const query = document.getElementById('query-input').value.trim();
+  const limit = parseInt(document.getElementById('limit-select').value);
+  const btn = document.getElementById('search-btn');
+  const wrap = document.getElementById('results-wrap');
+
+  if (!branch || !query) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Searching...';
+  wrap.innerHTML = '';
+
+  try {
+    const res = await fetch('/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branch: branch, query: query, limit: limit })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      wrap.innerHTML = '<p class="error">' + (data.error || res.statusText) + '</p>';
+      return;
+    }
+    renderResults(data.results);
+  } catch (err) {
+    wrap.innerHTML = '<p class="error">Request failed: ' + err + '</p>';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Search';
+  }
+});
+
+function renderResults(results) {
+  const wrap = document.getElementById('results-wrap');
+  if (!results || results.length === 0) {
+    wrap.innerHTML = '<p class="muted">No results found.</p>';
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const card = document.createElement('div');
+    card.className = 'result-card';
+
+    const header = document.createElement('div');
+    header.className = 'result-header';
+
+    const title = document.createElement('span');
+    title.className = 'result-title';
+    title.textContent = r.heading_path || r.title;
+
+    const score = document.createElement('span');
+    score.className = 'result-score';
+    score.textContent = 'Score: ' + r.score;
+
+    header.appendChild(title);
+    header.appendChild(score);
+
+    const url = document.createElement('a');
+    url.className = 'result-url';
+    url.href = r.url;
+    url.target = '_blank';
+    url.rel = 'noopener';
+    url.textContent = r.url;
+
+    const body = document.createElement('p');
+    body.className = 'result-body';
+    body.textContent = r.body;
+
+    card.appendChild(header);
+    card.appendChild(url);
+    card.appendChild(body);
+    frag.appendChild(card);
+  }
+  wrap.appendChild(frag);
+}
+</script>
+{% endblock %}

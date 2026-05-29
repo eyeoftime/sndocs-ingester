@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — SNDocs Ingester{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+  <div class="section-header">
+    <h2>Branches</h2>
+    <button id="refresh-btn" class="btn-secondary" onclick="loadBranches()">Refresh</button>
+  </div>
+  <div id="branch-list-wrap">
+    <p class="muted">Loading branches…</p>
+  </div>
+</div>
+
+<script>
+async function loadBranches() {
+  const btn = document.getElementById('refresh-btn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/branches');
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+    renderTable(data.branches, data.ingested);
+  } catch (e) {
+    document.getElementById('branch-list-wrap').innerHTML =
+      '<p class="error">Failed to load branches: ' + e + '</p>';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderTable(branches, ingested) {
+  const wrap = document.getElementById('branch-list-wrap');
+  if (!branches || !branches.length) {
+    wrap.innerHTML = '<p class="muted">No branches found.</p>';
+    return;
+  }
+
+  const table = document.createElement('table');
+  table.className = 'branch-table';
+  const thead = document.createElement('thead');
+  thead.innerHTML = '<tr><th>Branch</th><th>Status</th><th>Last synced</th><th></th></tr>';
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+
+  for (let i = 0; i < branches.length; i++) {
+    const branch = branches[i];
+    const state = ingested[branch];
+    const tr = document.createElement('tr');
+    tr.setAttribute('id', 'row-' + branch.replace(/[^a-zA-Z0-9_-]/g, '_'));
+
+    const statusBadge = state ? badgeHtml(state.status) : '<span class="badge badge-idle">Not ingested</span>';
+    const lastSync = (state && state.last_synced_at)
+      ? new Date(state.last_synced_at + 'Z').toLocaleString()
+      : '-';
+    const btnLabel = state ? 'Re-ingest' : 'Ingest';
+
+    const tdBranch = document.createElement('td');
+    tdBranch.className = 'branch-name';
+    tdBranch.textContent = branch;
+
+    const tdStatus = document.createElement('td');
+    tdStatus.className = 'status-cell';
+    tdStatus.innerHTML = statusBadge;
+
+    const tdSync = document.createElement('td');
+    tdSync.className = 'last-sync';
+    tdSync.textContent = lastSync;
+
+    const tdActions = document.createElement('td');
+    tdActions.className = 'actions';
+    const btn = document.createElement('button');
+    btn.className = 'btn-primary';
+    btn.textContent = btnLabel;
+    btn.setAttribute('data-branch', branch);
+    btn.addEventListener('click', function() { triggerIngest(branch, btn); });
+    tdActions.appendChild(btn);
+
+    if (state) {
+      const purgeBtn = document.createElement('button');
+      purgeBtn.className = 'btn-danger';
+      purgeBtn.textContent = 'Purge';
+      purgeBtn.addEventListener('click', function() { triggerPurge(branch, purgeBtn); });
+      tdActions.appendChild(purgeBtn);
+    }
+
+    tr.appendChild(tdBranch);
+    tr.appendChild(tdStatus);
+    tr.appendChild(tdSync);
+    tr.appendChild(tdActions);
+    tbody.appendChild(tr);
+
+    if (state && state.status === 'running') {
+      pollStatus(branch);
+    }
+  }
+
+  table.appendChild(tbody);
+  wrap.innerHTML = '';
+  wrap.appendChild(table);
+}
+
+async function triggerIngest(branch, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Starting...';
+  try {
+    const res = await fetch('/ingest/' + encodeURIComponent(branch), { method: 'POST' });
+    if (res.status === 409) {
+      btn.textContent = 'Already running';
+      setTimeout(function() { btn.textContent = 'Re-ingest'; btn.disabled = false; }, 3000);
+      return;
+    }
+    updateRow(branch, { status: 'running', last_synced_at: null });
+    pollStatus(branch);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'Error - retry';
+  }
+}
+
+async function triggerPurge(branch, btn) {
+  if (!confirm('Purge all vectors for "' + branch + '"? This cannot be undone.')) return;
+  btn.disabled = true;
+  btn.textContent = 'Purging...';
+  try {
+    const res = await fetch('/purge/' + encodeURIComponent(branch), { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) {
+      alert('Purge failed: ' + (data.error || res.statusText));
+      btn.disabled = false;
+      btn.textContent = 'Purge';
+      return;
+    }
+    loadBranches();
+  } catch (e) {
+    alert('Purge failed: ' + e);
+    btn.disabled = false;
+    btn.textContent = 'Purge';
+  }
+}
+
+function pollStatus(branch) {
+  const interval = setInterval(async function() {
+    try {
+      const res = await fetch('/status/' + encodeURIComponent(branch));
+      const data = await res.json();
+      updateRow(branch, data);
+      if (data.status !== 'running') clearInterval(interval);
+    } catch (e) {
+      clearInterval(interval);
+    }
+  }, 3000);
+}
+
+function updateRow(branch, state) {
+  const rowId = 'row-' + branch.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const row = document.getElementById(rowId);
+  if (!row) return;
+  row.querySelector('.status-cell').innerHTML = badgeHtml(state.status);
+  const ts = (state && state.last_synced_at)
+    ? new Date(state.last_synced_at + 'Z').toLocaleString()
+    : '-';
+  row.querySelector('.last-sync').textContent = ts;
+  const btn = row.querySelector('button');
+  if (state.status === 'running') {
+    btn.disabled = true;
+    btn.textContent = 'Running...';
+  } else {
+    btn.disabled = false;
+    btn.textContent = 'Re-ingest';
+  }
+}
+
+function badgeHtml(status) {
+  var classes = { done: 'badge-done', running: 'badge-running', error: 'badge-error', pending: 'badge-idle' };
+  var cls = classes[status] || 'badge-idle';
+  return '<span class="badge ' + cls + '">' + status + '</span>';
+}
+
+document.addEventListener('DOMContentLoaded', loadBranches);
+</script>
+{% endblock %}

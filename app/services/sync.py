@@ -1,0 +1,108 @@
+import logging
+from pathlib import Path
+
+import httpx
+
+from app.config import settings
+from app.db import repository as repo
+from app.services import chunker, embedder, git_manager, qdrant_manager
+
+logger = logging.getLogger(__name__)
+
+
+async def ingest_branch(branch: str) -> None:
+    """Full ingest (or re-ingest) of a branch."""
+    collection = qdrant_manager.collection_name(branch)
+    repo.upsert_branch(branch, collection)
+    repo.set_branch_status(branch, "running")
+
+    try:
+        git_repo = git_manager.clone_or_pull(branch)
+        repo_root = Path(git_repo.working_dir)
+        head_sha = git_manager.get_head_sha(git_repo)
+
+        qdrant = qdrant_manager.get_client()
+        qdrant_manager.ensure_collection(qdrant, collection)
+
+        # Remove all existing vectors for this branch (re-ingest scenario)
+        old_ids = repo.delete_all_chunks_for_branch(branch)
+        if old_ids:
+            qdrant_manager.delete_points(qdrant, collection, old_ids)
+
+        md_files = git_manager.walk_md_files(git_repo)
+        if settings.ingest_limit:
+            md_files = md_files[: settings.ingest_limit]
+        logger.info("Ingesting %d .md files for branch %s", len(md_files), branch)
+
+        async with httpx.AsyncClient() as http:
+            for md_file in md_files:
+                await _process_file(branch, collection, md_file, repo_root, qdrant, http)
+
+        repo.set_branch_synced(branch, head_sha)
+        logger.info("Ingest complete for branch %s @ %s", branch, head_sha[:8])
+
+    except Exception as exc:
+        logger.exception("Ingest failed for branch %s", branch)
+        repo.set_branch_status(branch, "error", str(exc))
+        raise
+
+
+async def sync_branch(branch: str) -> None:
+    """Incremental sync — only process changed files since last ingest."""
+    state = repo.get_branch(branch)
+    if not state or state["status"] not in ("done",):
+        logger.info("Branch %s not yet ingested, running full ingest", branch)
+        await ingest_branch(branch)
+        return
+
+    old_sha = state["head_sha"]
+    collection = state["collection"]
+    repo.set_branch_status(branch, "running")
+
+    try:
+        git_repo = git_manager.clone_or_pull(branch)
+        new_sha = git_manager.get_head_sha(git_repo)
+
+        if old_sha == new_sha:
+            logger.info("Branch %s is up to date", branch)
+            repo.set_branch_status(branch, "done")
+            return
+
+        repo_root = Path(git_repo.working_dir)
+        qdrant = qdrant_manager.get_client()
+        changed = git_manager.get_changed_files(git_repo, old_sha, new_sha)
+        logger.info("%d changed .md files in branch %s", len(changed), branch)
+
+        async with httpx.AsyncClient() as http:
+            for status, file_path in changed:
+                if Path(file_path).name == "index.md":
+                    continue
+                if status == "D":
+                    old_ids = repo.delete_file_chunks(branch, file_path)
+                    qdrant_manager.delete_points(qdrant, collection, old_ids)
+                else:
+                    abs_path = repo_root / file_path
+                    if abs_path.exists():
+                        old_ids = repo.delete_file_chunks(branch, file_path)
+                        qdrant_manager.delete_points(qdrant, collection, old_ids)
+                        await _process_file(branch, collection, abs_path, repo_root, qdrant, http)
+
+        repo.set_branch_synced(branch, new_sha)
+        logger.info("Sync complete for branch %s @ %s", branch, new_sha[:8])
+
+    except Exception as exc:
+        logger.exception("Sync failed for branch %s", branch)
+        repo.set_branch_status(branch, "error", str(exc))
+        raise
+
+
+async def _process_file(branch, collection, md_file, repo_root, qdrant, http):
+    chunks = chunker.chunk_file(md_file, branch, repo_root)
+    if not chunks:
+        return
+
+    texts = [f"{c.title}\n\n{c.body}" for c in chunks]
+    vectors = await embedder.embed_texts(texts, http)
+
+    qdrant_manager.upsert_chunks(qdrant, collection, chunks, vectors)
+    repo.save_chunk_ids(branch, chunks[0].file_path, [c.chunk_id for c in chunks])
