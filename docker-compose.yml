@@ -36,6 +36,7 @@ services:
     environment:
       - APP_URL=http://app:8000
       - API_KEY=${SECRET_KEY}
+      - MCP_TOKEN=${MCP_TOKEN}
     depends_on:
       - app
     restart: unless-stopped
