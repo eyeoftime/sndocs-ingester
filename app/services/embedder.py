@@ -98,9 +98,10 @@ async def _embed_batch(texts: List[str], client: httpx.AsyncClient) -> tuple[Lis
             vectors = [item["embedding"] for item in sorted(data["data"], key=lambda x: x["index"])]
             return vectors, tokens
 
-        except httpx.TimeoutException:
+        except httpx.TransportError as exc:
             delay = 2 ** attempt
-            logger.warning("Embedding request timed out (attempt %d) — retrying in %.0fs", attempt + 1, delay)
+            logger.warning("Embedding request failed (attempt %d): %s — retrying in %.0fs",
+                           attempt + 1, exc, delay)
             await asyncio.sleep(delay)
 
     raise RuntimeError("Embedding API failed after 5 attempts")
