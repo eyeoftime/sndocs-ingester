@@ -48,11 +48,13 @@ async def ingest_branch(branch: str, resume: bool = False) -> None:
         done_so_far = repo.count_ingested_files(branch) if resume else 0
         grand_total = done_so_far + total
         logger.info("Ingesting %d .md files for branch %s", total, branch)
-        repo.set_branch_progress(branch, done_so_far, grand_total)
 
         branch_row = repo.get_branch(branch)
         existing_tokens = (dict(branch_row).get("tokens_used") or 0) if branch_row else 0
         total_tokens = existing_tokens if resume else 0
+
+        repo.set_branch_progress(branch, done_so_far, grand_total,
+                                  total_tokens, embedder.tokens_to_cost(total_tokens))
         files_done = done_so_far
         semaphore = asyncio.Semaphore(settings.embedding_concurrency)
         token_lock = asyncio.Lock()
