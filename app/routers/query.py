@@ -34,7 +34,7 @@ async def run_query(req: QueryRequest):
         return JSONResponse({"error": "Branch not available"}, status_code=400)
 
     async with httpx.AsyncClient() as http:
-        vectors = await embedder.embed_texts([req.query], http)
+        vectors, _ = await embedder.embed_texts([req.query], http)
 
     if not vectors:
         return JSONResponse({"error": "Failed to embed query"}, status_code=500)

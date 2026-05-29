@@ -4,7 +4,11 @@ CREATE TABLE IF NOT EXISTS branch_state (
     head_sha       TEXT,
     status         TEXT NOT NULL DEFAULT 'pending',
     error_msg      TEXT,
-    last_synced_at TEXT
+    last_synced_at TEXT,
+    files_done     INTEGER NOT NULL DEFAULT 0,
+    files_total    INTEGER NOT NULL DEFAULT 0,
+    tokens_used    INTEGER NOT NULL DEFAULT 0,
+    cost_usd       REAL    NOT NULL DEFAULT 0.0
 );
 
 CREATE TABLE IF NOT EXISTS file_chunks (

@@ -39,7 +39,7 @@ function renderTable(branches, ingested) {
   const table = document.createElement('table');
   table.className = 'branch-table';
   const thead = document.createElement('thead');
-  thead.innerHTML = '<tr><th>Branch</th><th>Status</th><th>Last synced</th><th></th></tr>';
+  thead.innerHTML = '<tr><th>Branch</th><th>Status</th><th>Last synced</th><th>Cost</th><th></th></tr>';
   table.appendChild(thead);
   const tbody = document.createElement('tbody');
 
@@ -49,7 +49,7 @@ function renderTable(branches, ingested) {
     const tr = document.createElement('tr');
     tr.setAttribute('id', 'row-' + branch.replace(/[^a-zA-Z0-9_-]/g, '_'));
 
-    const statusBadge = state ? badgeHtml(state.status) : '<span class="badge badge-idle">Not ingested</span>';
+    const statusBadge = state ? statusHtml(state) : '<span class="badge badge-idle">Not ingested</span>';
     const lastSync = (state && state.last_synced_at)
       ? new Date(state.last_synced_at + 'Z').toLocaleString()
       : '-';
@@ -66,6 +66,10 @@ function renderTable(branches, ingested) {
     const tdSync = document.createElement('td');
     tdSync.className = 'last-sync';
     tdSync.textContent = lastSync;
+
+    const tdCost = document.createElement('td');
+    tdCost.className = 'cost-cell';
+    tdCost.textContent = state ? formatCost(state) : '-';
 
     const tdActions = document.createElement('td');
     tdActions.className = 'actions';
@@ -87,6 +91,7 @@ function renderTable(branches, ingested) {
     tr.appendChild(tdBranch);
     tr.appendChild(tdStatus);
     tr.appendChild(tdSync);
+    tr.appendChild(tdCost);
     tr.appendChild(tdActions);
     tbody.appendChild(tr);
 
@@ -156,11 +161,13 @@ function updateRow(branch, state) {
   const rowId = 'row-' + branch.replace(/[^a-zA-Z0-9_-]/g, '_');
   const row = document.getElementById(rowId);
   if (!row) return;
-  row.querySelector('.status-cell').innerHTML = badgeHtml(state.status);
+  row.querySelector('.status-cell').innerHTML = statusHtml(state);
   const ts = (state && state.last_synced_at)
     ? new Date(state.last_synced_at + 'Z').toLocaleString()
     : '-';
   row.querySelector('.last-sync').textContent = ts;
+  const costCell = row.querySelector('.cost-cell');
+  if (costCell) costCell.textContent = formatCost(state);
   const btn = row.querySelector('button');
   if (state.status === 'running') {
     btn.disabled = true;
@@ -169,6 +176,27 @@ function updateRow(branch, state) {
     btn.disabled = false;
     btn.textContent = 'Re-ingest';
   }
+}
+
+function statusHtml(state) {
+  if (state.status === 'running' && state.files_total > 0) {
+    const done = state.files_done || 0;
+    const total = state.files_total;
+    const pct = Math.round((done / total) * 100);
+    return '<span class="badge badge-running">running</span>' +
+      '<div class="progress-wrap">' +
+        '<div class="progress-bar" style="width:' + pct + '%"></div>' +
+      '</div>' +
+      '<span class="progress-label">' + done + ' / ' + total + ' files</span>';
+  }
+  return badgeHtml(state.status);
+}
+
+function formatCost(state) {
+  if (!state || !state.cost_usd) return '-';
+  const cost = state.cost_usd;
+  if (cost < 0.01) return '<$0.01';
+  return '$' + cost.toFixed(4);
 }
 
 function badgeHtml(status) {

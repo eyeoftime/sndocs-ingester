@@ -24,7 +24,6 @@ async def ingest_branch(branch: str) -> None:
         qdrant = qdrant_manager.get_client()
         qdrant_manager.ensure_collection(qdrant, collection)
 
-        # Remove all existing vectors for this branch (re-ingest scenario)
         old_ids = repo.delete_all_chunks_for_branch(branch)
         if old_ids:
             qdrant_manager.delete_points(qdrant, collection, old_ids)
@@ -32,14 +31,23 @@ async def ingest_branch(branch: str) -> None:
         md_files = git_manager.walk_md_files(git_repo)
         if settings.ingest_limit:
             md_files = md_files[: settings.ingest_limit]
-        logger.info("Ingesting %d .md files for branch %s", len(md_files), branch)
+        total = len(md_files)
+        logger.info("Ingesting %d .md files for branch %s", total, branch)
+        repo.set_branch_progress(branch, 0, total)
 
+        total_tokens = 0
         async with httpx.AsyncClient() as http:
-            for md_file in md_files:
-                await _process_file(branch, collection, md_file, repo_root, qdrant, http)
+            for i, md_file in enumerate(md_files):
+                tokens = await _process_file(branch, collection, md_file, repo_root, qdrant, http)
+                total_tokens += tokens
+                repo.set_branch_progress(
+                    branch, i + 1, total,
+                    total_tokens, embedder.tokens_to_cost(total_tokens),
+                )
 
         repo.set_branch_synced(branch, head_sha)
-        logger.info("Ingest complete for branch %s @ %s", branch, head_sha[:8])
+        logger.info("Ingest complete for branch %s @ %s (tokens: %d, cost: $%.4f)",
+                    branch, head_sha[:8], total_tokens, embedder.tokens_to_cost(total_tokens))
 
     except Exception as exc:
         logger.exception("Ingest failed for branch %s", branch)
@@ -73,6 +81,10 @@ async def sync_branch(branch: str) -> None:
         changed = git_manager.get_changed_files(git_repo, old_sha, new_sha)
         logger.info("%d changed .md files in branch %s", len(changed), branch)
 
+        # Carry over existing token/cost totals and accumulate sync costs on top
+        existing_tokens = state["tokens_used"] or 0
+        sync_tokens = 0
+
         async with httpx.AsyncClient() as http:
             for status, file_path in changed:
                 if Path(file_path).name == "index.md":
@@ -85,10 +97,18 @@ async def sync_branch(branch: str) -> None:
                     if abs_path.exists():
                         old_ids = repo.delete_file_chunks(branch, file_path)
                         qdrant_manager.delete_points(qdrant, collection, old_ids)
-                        await _process_file(branch, collection, abs_path, repo_root, qdrant, http)
+                        tokens = await _process_file(branch, collection, abs_path, repo_root, qdrant, http)
+                        sync_tokens += tokens
 
+        total_tokens = existing_tokens + sync_tokens
         repo.set_branch_synced(branch, new_sha)
-        logger.info("Sync complete for branch %s @ %s", branch, new_sha[:8])
+        repo.set_branch_progress(
+            branch,
+            state["files_done"] or 0, state["files_total"] or 0,
+            total_tokens, embedder.tokens_to_cost(total_tokens),
+        )
+        logger.info("Sync complete for branch %s @ %s (sync tokens: %d, cost: $%.4f)",
+                    branch, new_sha[:8], sync_tokens, embedder.tokens_to_cost(sync_tokens))
 
     except Exception as exc:
         logger.exception("Sync failed for branch %s", branch)
@@ -96,13 +116,15 @@ async def sync_branch(branch: str) -> None:
         raise
 
 
-async def _process_file(branch, collection, md_file, repo_root, qdrant, http):
+async def _process_file(branch, collection, md_file, repo_root, qdrant, http) -> int:
+    """Process a single file and return the number of tokens used."""
     chunks = chunker.chunk_file(md_file, branch, repo_root)
     if not chunks:
-        return
+        return 0
 
     texts = [f"{c.title}\n\n{c.body}" for c in chunks]
-    vectors = await embedder.embed_texts(texts, http)
+    vectors, tokens = await embedder.embed_texts(texts, http)
 
     qdrant_manager.upsert_chunks(qdrant, collection, chunks, vectors)
     repo.save_chunk_ids(branch, chunks[0].file_path, [c.chunk_id for c in chunks])
+    return tokens

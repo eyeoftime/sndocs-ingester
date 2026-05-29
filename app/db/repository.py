@@ -10,6 +10,15 @@ def init_db() -> None:
     schema = (Path(__file__).parent / "schema.sql").read_text()
     with _conn() as conn:
         conn.executescript(schema)
+        # Migrations for existing databases
+        for col, definition in [("files_done", "INTEGER NOT NULL DEFAULT 0"),
+                                 ("files_total", "INTEGER NOT NULL DEFAULT 0"),
+                                 ("tokens_used", "INTEGER NOT NULL DEFAULT 0"),
+                                 ("cost_usd", "REAL NOT NULL DEFAULT 0.0")]:
+            try:
+                conn.execute(f"ALTER TABLE branch_state ADD COLUMN {col} {definition}")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
 
 
 @contextmanager
@@ -57,6 +66,17 @@ def set_branch_status(branch: str, status: str, error_msg: str = None) -> None:
         conn.execute(
             "UPDATE branch_state SET status = ?, error_msg = ? WHERE branch = ?",
             (status, error_msg, branch),
+        )
+
+
+def set_branch_progress(branch: str, files_done: int, files_total: int,
+                        tokens_used: int = 0, cost_usd: float = 0.0) -> None:
+    with _conn() as conn:
+        conn.execute(
+            """UPDATE branch_state
+               SET files_done = ?, files_total = ?, tokens_used = ?, cost_usd = ?
+               WHERE branch = ?""",
+            (files_done, files_total, tokens_used, cost_usd, branch),
         )
 
 

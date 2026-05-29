@@ -113,6 +113,7 @@ body.login-page {
 .branch-table tr:hover td { background: rgba(255,255,255,0.02); }
 .branch-name { font-family: monospace; font-size: 13px; }
 .last-sync { color: var(--muted); font-size: 13px; }
+.cost-cell { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 
 /* ── Badges ── */
 .badge {
@@ -239,6 +240,28 @@ body.login-page {
 }
 .result-url:hover { text-decoration: underline; }
 .result-body { font-size: 13px; color: var(--muted); line-height: 1.6; white-space: pre-wrap; }
+
+/* ── Progress bar ── */
+.progress-wrap {
+  height: 4px;
+  background: rgba(245,158,11,0.15);
+  border-radius: 999px;
+  margin-top: 6px;
+  overflow: hidden;
+  width: 160px;
+}
+.progress-bar {
+  height: 100%;
+  background: var(--warning);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+.progress-label {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 3px;
+}
 
 /* ── Misc ── */
 .muted { color: var(--muted); }
