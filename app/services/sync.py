@@ -49,7 +49,8 @@ async def ingest_branch(branch: str, resume: bool = False) -> None:
         logger.info("Ingesting %d .md files for branch %s", total, branch)
         repo.set_branch_progress(branch, done_so_far, grand_total)
 
-        existing_tokens = (repo.get_branch(branch) or {}).get("tokens_used") or 0
+        branch_row = repo.get_branch(branch)
+        existing_tokens = (dict(branch_row).get("tokens_used") or 0) if branch_row else 0
         total_tokens = existing_tokens if resume else 0
 
         async with httpx.AsyncClient() as http:
