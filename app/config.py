@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     db_path: str = "/data/state.db"
 
     ingest_limit: int = 0  # 0 = no limit; set to a small number for testing
+    embedding_concurrency: int = 5  # max parallel embedding API requests
 
     sync_cron_hour: int = 2
     session_max_age: int = 28800

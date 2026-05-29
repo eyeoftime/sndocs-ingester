@@ -17,6 +17,7 @@ services:
       - SYNC_CRON_HOUR=${SYNC_CRON_HOUR:-2}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - INGEST_LIMIT=${INGEST_LIMIT:-0}
+      - EMBEDDING_CONCURRENCY=${EMBEDDING_CONCURRENCY:-5}
     volumes:
       - repo_data:/data
     depends_on:

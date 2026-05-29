@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from typing import List
 
 import httpx
@@ -12,6 +13,26 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/embeddings"
 
 # Cost per token in USD (text-embedding-3-small via OpenRouter)
 COST_PER_TOKEN = 0.02 / 1_000_000
+
+# Shared backoff state — when any worker is rate limited, all workers pause
+_backoff_until: float = 0.0
+_backoff_lock = asyncio.Lock()
+
+
+async def _wait_for_backoff() -> None:
+    """Wait if a rate limit backoff is currently active."""
+    remaining = _backoff_until - time.monotonic()
+    if remaining > 0:
+        logger.info("Rate limit backoff active — waiting %.1fs", remaining)
+        await asyncio.sleep(remaining)
+
+
+async def _set_backoff(delay: float) -> None:
+    """Set a shared backoff period, extending any existing one."""
+    global _backoff_until
+    async with _backoff_lock:
+        _backoff_until = max(_backoff_until, time.monotonic() + delay)
+        logger.warning("Rate limit hit — backing off for %.1fs", delay)
 
 
 async def embed_texts(texts: List[str], client: httpx.AsyncClient) -> tuple[List[List[float]], int]:
@@ -45,36 +66,44 @@ async def _embed_batch(texts: List[str], client: httpx.AsyncClient) -> tuple[Lis
         "Content-Type": "application/json",
     }
 
-    for attempt in range(3):
+    for attempt in range(5):
+        await _wait_for_backoff()
+
         try:
             resp = await client.post(
                 OPENROUTER_URL, json=payload, headers=headers, timeout=120
             )
+
             if resp.status_code == 429 or resp.status_code >= 500:
-                wait = 2 ** attempt
-                logger.warning("Embedding API returned %s, retrying in %ss", resp.status_code, wait)
-                await asyncio.sleep(wait)
+                # Honour Retry-After header if present, else exponential backoff
+                retry_after = resp.headers.get("Retry-After")
+                delay = float(retry_after) if retry_after else 2 ** attempt
+                await _set_backoff(delay)
                 continue
+
             resp.raise_for_status()
             data = resp.json()
+
             if "data" not in data:
                 error = data.get("error", data)
                 code = error.get("code", "") if isinstance(error, dict) else ""
                 msg = error.get("message", str(error)) if isinstance(error, dict) else str(error)
                 if code in (429, "rate_limit_exceeded") or "rate limit" in str(msg).lower():
-                    wait = 2 ** attempt
-                    logger.warning("Rate limited by embedding API, retrying in %ss: %s", wait, msg)
-                    await asyncio.sleep(wait)
+                    delay = 2 ** attempt
+                    await _set_backoff(delay)
                     continue
                 raise RuntimeError(f"Embedding API error: {msg}")
+
             tokens = data.get("usage", {}).get("prompt_tokens", 0)
             vectors = [item["embedding"] for item in sorted(data["data"], key=lambda x: x["index"])]
             return vectors, tokens
-        except httpx.TimeoutException:
-            logger.warning("Embedding request timed out (attempt %s)", attempt + 1)
-            await asyncio.sleep(2 ** attempt)
 
-    raise RuntimeError("Embedding API failed after 3 attempts")
+        except httpx.TimeoutException:
+            delay = 2 ** attempt
+            logger.warning("Embedding request timed out (attempt %d) — retrying in %.0fs", attempt + 1, delay)
+            await asyncio.sleep(delay)
+
+    raise RuntimeError("Embedding API failed after 5 attempts")
 
 
 def tokens_to_cost(tokens: int) -> float:

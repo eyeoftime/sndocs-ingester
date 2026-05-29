@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from pathlib import Path
 
@@ -52,15 +53,24 @@ async def ingest_branch(branch: str, resume: bool = False) -> None:
         branch_row = repo.get_branch(branch)
         existing_tokens = (dict(branch_row).get("tokens_used") or 0) if branch_row else 0
         total_tokens = existing_tokens if resume else 0
+        files_done = done_so_far
+        semaphore = asyncio.Semaphore(settings.embedding_concurrency)
+        token_lock = asyncio.Lock()
 
-        async with httpx.AsyncClient() as http:
-            for i, md_file in enumerate(md_files):
-                tokens = await _process_file(branch, collection, md_file, repo_root, qdrant, http)
+        async def process_with_progress(md_file):
+            nonlocal total_tokens, files_done
+            async with semaphore:
+                async with httpx.AsyncClient() as http:
+                    tokens = await _process_file(branch, collection, md_file, repo_root, qdrant, http)
+            async with token_lock:
                 total_tokens += tokens
+                files_done += 1
                 repo.set_branch_progress(
-                    branch, done_so_far + i + 1, grand_total,
+                    branch, files_done, grand_total,
                     total_tokens, embedder.tokens_to_cost(total_tokens),
                 )
+
+        await asyncio.gather(*[process_with_progress(f) for f in md_files])
 
         repo.set_branch_synced(branch, head_sha)
         logger.info("Ingest complete for branch %s @ %s (tokens: %d, cost: $%.4f)",
@@ -102,20 +112,29 @@ async def sync_branch(branch: str) -> None:
         existing_tokens = dict(state).get("tokens_used") or 0
         sync_tokens = 0
 
-        async with httpx.AsyncClient() as http:
-            for status, file_path in changed:
-                if Path(file_path).name == "index.md":
-                    continue
-                if status == "D":
+        semaphore = asyncio.Semaphore(settings.embedding_concurrency)
+        token_lock = asyncio.Lock()
+
+        async def process_changed(item):
+            nonlocal sync_tokens
+            status, file_path = item
+            if Path(file_path).name == "index.md":
+                return
+            if status == "D":
+                old_ids = repo.delete_file_chunks(branch, file_path)
+                qdrant_manager.delete_points(qdrant, collection, old_ids)
+            else:
+                abs_path = repo_root / file_path
+                if abs_path.exists():
                     old_ids = repo.delete_file_chunks(branch, file_path)
                     qdrant_manager.delete_points(qdrant, collection, old_ids)
-                else:
-                    abs_path = repo_root / file_path
-                    if abs_path.exists():
-                        old_ids = repo.delete_file_chunks(branch, file_path)
-                        qdrant_manager.delete_points(qdrant, collection, old_ids)
-                        tokens = await _process_file(branch, collection, abs_path, repo_root, qdrant, http)
+                    async with semaphore:
+                        async with httpx.AsyncClient() as http:
+                            tokens = await _process_file(branch, collection, abs_path, repo_root, qdrant, http)
+                    async with token_lock:
                         sync_tokens += tokens
+
+        await asyncio.gather(*[process_changed(item) for item in changed])
 
         total_tokens = existing_tokens + sync_tokens
         repo.set_branch_synced(branch, new_sha)
