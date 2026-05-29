@@ -53,6 +53,15 @@ async def branch_status(branch: str):
     return JSONResponse(dict(row))
 
 
+@router.post("/default/{branch:path}")
+async def set_default(branch: str):
+    state = repo.get_branch(branch)
+    if not state or state["status"] != "done":
+        return JSONResponse({"error": "Branch not available"}, status_code=400)
+    repo.set_default_branch(branch)
+    return JSONResponse({"status": "ok", "default": branch})
+
+
 @router.post("/resume/{branch:path}")
 async def resume_ingest(branch: str, background_tasks: BackgroundTasks):
     if branch in _running:

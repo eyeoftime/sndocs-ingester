@@ -39,7 +39,7 @@ function renderTable(branches, ingested) {
   const table = document.createElement('table');
   table.className = 'branch-table';
   const thead = document.createElement('thead');
-  thead.innerHTML = '<tr><th>Branch</th><th>Status</th><th>Last synced</th><th>Cost</th><th></th></tr>';
+  thead.innerHTML = '<tr><th>Branch</th><th>Status</th><th>Last synced</th><th>Cost</th><th>Default</th><th></th></tr>';
   table.appendChild(thead);
   const tbody = document.createElement('tbody');
 
@@ -71,6 +71,15 @@ function renderTable(branches, ingested) {
     tdCost.className = 'cost-cell';
     tdCost.textContent = state ? formatCost(state) : '-';
 
+    const tdDefault = document.createElement('td');
+    tdDefault.className = 'default-cell';
+    tdDefault.setAttribute('id', 'default-' + branch.replace(/[^a-zA-Z0-9_-]/g, '_'));
+    if (state && state.status === 'done') {
+      tdDefault.innerHTML = defaultCellHtml(branch, state.is_default);
+    } else {
+      tdDefault.textContent = '-';
+    }
+
     const tdActions = document.createElement('td');
     tdActions.className = 'actions';
     const btn = document.createElement('button');
@@ -101,6 +110,7 @@ function renderTable(branches, ingested) {
     tr.appendChild(tdStatus);
     tr.appendChild(tdSync);
     tr.appendChild(tdCost);
+    tr.appendChild(tdDefault);
     tr.appendChild(tdActions);
     tbody.appendChild(tr);
 
@@ -219,6 +229,33 @@ function statusHtml(state) {
       '<span class="progress-label">' + done + ' / ' + total + ' files</span>';
   }
   return badgeHtml(state.status);
+}
+
+function defaultCellHtml(branch, isDefault) {
+  if (isDefault) return '<span class="default-star" title="Default release">★</span>';
+  return '<button class="btn-link" onclick="setDefault(\'' + branch + '\')">Set default</button>';
+}
+
+async function setDefault(branch) {
+  try {
+    const res = await fetch('/default/' + encodeURIComponent(branch), { method: 'POST' });
+    if (!res.ok) {
+      const data = await res.json();
+      alert('Failed: ' + (data.error || res.statusText));
+      return;
+    }
+    // Update all default cells
+    document.querySelectorAll('.default-cell').forEach(cell => {
+      const b = cell.closest('tr').querySelector('.branch-name').textContent;
+      if (b === branch) {
+        cell.innerHTML = '<span class="default-star" title="Default release">★</span>';
+      } else if (cell.innerHTML.includes('★')) {
+        cell.innerHTML = '<button class="btn-link" onclick="setDefault(\'' + b + '\')">Set default</button>';
+      }
+    });
+  } catch(e) {
+    alert('Failed: ' + e);
+  }
 }
 
 function formatCost(state) {

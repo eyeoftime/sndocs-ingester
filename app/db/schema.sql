@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS branch_state (
     files_done     INTEGER NOT NULL DEFAULT 0,
     files_total    INTEGER NOT NULL DEFAULT 0,
     tokens_used    INTEGER NOT NULL DEFAULT 0,
-    cost_usd       REAL    NOT NULL DEFAULT 0.0
+    cost_usd       REAL    NOT NULL DEFAULT 0.0,
+    is_default     INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS file_chunks (

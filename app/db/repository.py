@@ -14,7 +14,8 @@ def init_db() -> None:
         for col, definition in [("files_done", "INTEGER NOT NULL DEFAULT 0"),
                                  ("files_total", "INTEGER NOT NULL DEFAULT 0"),
                                  ("tokens_used", "INTEGER NOT NULL DEFAULT 0"),
-                                 ("cost_usd", "REAL NOT NULL DEFAULT 0.0")]:
+                                 ("cost_usd", "REAL NOT NULL DEFAULT 0.0"),
+                                 ("is_default", "INTEGER NOT NULL DEFAULT 0")]:
             try:
                 conn.execute(f"ALTER TABLE branch_state ADD COLUMN {col} {definition}")
             except sqlite3.OperationalError:
@@ -67,6 +68,12 @@ def set_branch_status(branch: str, status: str, error_msg: str = None) -> None:
             "UPDATE branch_state SET status = ?, error_msg = ? WHERE branch = ?",
             (status, error_msg, branch),
         )
+
+
+def set_default_branch(branch: str) -> None:
+    with _conn() as conn:
+        conn.execute("UPDATE branch_state SET is_default = 0")
+        conn.execute("UPDATE branch_state SET is_default = 1 WHERE branch = ?", (branch,))
 
 
 def set_branch_progress(branch: str, files_done: int, files_total: int,

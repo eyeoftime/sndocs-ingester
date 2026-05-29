@@ -50,11 +50,9 @@ async def _get_releases(client: httpx.AsyncClient) -> list[dict]:
     resp.raise_for_status()
     data = resp.json()
     ingested = data.get("ingested", {})
-    return sorted(
-        [v for v in ingested.values() if v.get("status") == "done"],
-        key=lambda x: x.get("last_synced_at") or "",
-        reverse=True,
-    )
+    done = [v for v in ingested.values() if v.get("status") == "done"]
+    # Default branch first, then sort by last_synced_at
+    return sorted(done, key=lambda x: (not x.get("is_default"), x.get("last_synced_at") or ""), reverse=False)
 
 
 @mcp.tool()

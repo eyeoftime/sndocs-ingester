@@ -114,6 +114,8 @@ body.login-page {
 .branch-name { font-family: monospace; font-size: 13px; }
 .last-sync { color: var(--muted); font-size: 13px; }
 .cost-cell { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.default-cell { text-align: center; }
+.default-star { color: var(--warning); font-size: 16px; }
 
 /* ── Badges ── */
 .badge {
